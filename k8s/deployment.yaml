@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: MODEL_DEPLOYMENT_NAME
+  labels:
+    app: MODEL_APP_LABEL
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: MODEL_APP_LABEL
+  template:
+    metadata:
+      labels:
+        app: MODEL_APP_LABEL
+    spec:
+      containers:
+        - name: api
+          image: PLACEHOLDER_IMAGE
+          ports:
+            - containerPort: 8081
+          env:
+            - name: PORT
+              value: "8081"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "2"
+              memory: "8Gi"
