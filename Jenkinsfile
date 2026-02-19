@@ -15,9 +15,6 @@ pipeline {
     string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'GitHub Branch Name')
     string(name: 'DEPLOYMENT_ID', defaultValue: '', description: 'Unique Deployment ID')
     password(name: 'GITHUB_TOKEN', defaultValue: '', description: 'User GitHub token (temporary)')
-    string(name: 'K8S_NAMESPACE', defaultValue: 'mlops-models', description: 'Target namespace')
-    string(name: 'DEPLOYMENT_NAME', defaultValue: 'sample-diffusion', description: 'K8s deployment name')
-    string(name: 'SERVICE_NAME', defaultValue: 'sample-diffusion-svc', description: 'K8s service name')
   }
 
   environment {
@@ -28,10 +25,15 @@ pipeline {
     GAR_REPO = "${env.GAR_REPO}"
     
     PIPELINE_REPO_URL = "${env.PIPELINE_REPO_URL}"
+    
     REPO_NAME = sh(script: """echo "${params.REPO_URL}" | sed 's/\\.git\$//' | xargs basename""", returnStdout: true).trim()
     DOCKER_IMAGE_LOCAL = "${REPO_NAME}:${params.BRANCH_NAME}"
     IMAGE_TAG = "${params.DEPLOYMENT_ID}"
     FINAL_IMAGE_URL = "${GAR_HOST}/${GCP_PROJECT}/${GAR_REPO}/${REPO_NAME}:${IMAGE_TAG}"
+
+    DEPLOY_NAME = "deploy-${params.DEPLOYMENT_ID}"
+    SVC_NAME = "svc-${params.DEPLOYMENT_ID}"
+    APP_LABEL = "app-${params.DEPLOYMENT_ID}"
   }
 
   stages {
@@ -117,17 +119,11 @@ pipeline {
               gcloud config set project ${GCP_PROJECT}
               gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GKE_LOCATION}
 
-              # Ensure the namespace exists
-              kubectl get ns ${params.K8S_NAMESPACE} || kubectl create ns ${params.K8S_NAMESPACE}
-
               # Clone mlops-pipeline repo (this contains your k8s/ manifests)
               rm -rf platform-manifests
               git clone --branch mlops_pipeline ${env.PIPELINE_REPO_URL} platform-manifests
 
               # Create the deployment dynamically using kubectl
-              export DEPLOY_NAME="${params.DEPLOYMENT_NAME}"
-              export SVC_NAME="${params.SERVICE_NAME}"
-              export APP_LABEL="${params.DEPLOYMENT_NAME}"
               export IMAGE="${FINAL_IMAGE_URL}"
 
               sed -e "s/MODEL_DEPLOYMENT_NAME/${DEPLOY_NAME}/g" \
@@ -140,11 +136,11 @@ pipeline {
                   -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
                   platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
 
-              kubectl -n ${params.K8S_NAMESPACE} apply -f /tmp/deployment.rendered.yaml
-              kubectl -n ${params.K8S_NAMESPACE} apply -f /tmp/service.rendered.yaml
+              kubectl apply -f /tmp/deployment.rendered.yaml
+              kubectl apply -f /tmp/service.rendered.yaml
 
               # Wait rollout
-              kubectl -n ${params.K8S_NAMESPACE} rollout status deploy/${DEPLOY_NAME} --timeout=900s
+              kubectl rollout status deploy/${DEPLOY_NAME} --timeout=900s
             """
             BUILD_LOG_MESSAGE = "Applied Kubernetes resources (deployment and service)."
           }
@@ -156,13 +152,13 @@ pipeline {
       steps {
         script {
           def ip = sh(
-            script: "kubectl -n ${params.K8S_NAMESPACE} get svc ${params.SERVICE_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'",
+            script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'",
             returnStdout: true
           ).trim()
 
           if (!ip) {
             ip = sh(
-              script: "kubectl -n ${params.K8S_NAMESPACE} get svc ${params.SERVICE_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+              script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
               returnStdout: true
             ).trim()
           }
