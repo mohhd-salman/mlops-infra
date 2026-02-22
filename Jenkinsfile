@@ -169,7 +169,7 @@ pipeline {
                         BUILD_LOG_MESSAGE = "Service external endpoint not assigned yet. Waiting..."
                         currentBuild.result = 'UNSTABLE'  // Mark build as unstable if endpoint isn't assigned yet
                     } else {
-                        env.DEPLOYED_ENDPOINT = "http://${ip}/health"
+                        env.DEPLOYED_ENDPOINT = "http://${ip}"
                         BUILD_LOG_MESSAGE = "Service reachable at: ${env.DEPLOYED_ENDPOINT}"
                     }
                 }
