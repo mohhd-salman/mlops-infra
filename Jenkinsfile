@@ -1,5 +1,3 @@
-@Library('') _
-
 def BUILD_LOG_MESSAGE = 'Pipeline initialized.'
 
 pipeline {
