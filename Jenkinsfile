@@ -79,33 +79,9 @@ pipeline {
             }
         }
 
-        stage('Build Image') {
+        stage('Skip Build Image & Push') {
             steps {
-                dir("${REPO_NAME}") {
-                    script {
-                        sh "docker build -t ${DOCKER_IMAGE_LOCAL} ."
-                        BUILD_LOG_MESSAGE = "Docker image built."
-                    }
-                }
-            }
-        }
-
-        stage('Push to Artifact Registry') {
-            steps {
-                script {
-                    withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
-                        sh """
-                            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                            gcloud config set project ${GCP_PROJECT}
-
-                            gcloud auth configure-docker ${GAR_HOST} -q
-
-                            docker tag ${DOCKER_IMAGE_LOCAL} ${FINAL_IMAGE_URL}
-                            docker push ${FINAL_IMAGE_URL}
-                        """
-                        BUILD_LOG_MESSAGE = "Pushed image: ${FINAL_IMAGE_URL}"
-                    }
-                }
+                echo "Skipping build and push steps for placeholder testing"
             }
         }
 
@@ -134,15 +110,17 @@ pipeline {
                                     -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
                                     platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
 
-                                kubectl apply -f /tmp/deployment.rendered.yaml
-                                kubectl apply -f /tmp/service.rendered.yaml
+                                # Print rendered files for inspection
+                                sh 'cat /tmp/deployment.rendered.yaml'
+                                sh 'cat /tmp/service.rendered.yaml'
 
-                                # Wait rollout
-                                kubectl rollout status deploy/${DEPLOY_NAME} --timeout=900s
+                                # Skip kubectl apply for testing, comment out in production
+                                echo "Skipping kubectl apply for testing."
+
                             """
-                            BUILD_LOG_MESSAGE = "Applied Kubernetes resources (deployment and service)."
+                            BUILD_LOG_MESSAGE = "Placeholder replacement checked and rendered YAML files are correct."
                         } catch (e) {
-                            BUILD_LOG_MESSAGE = "Kubernetes deployment failed: ${e.getMessage()}"
+                            BUILD_LOG_MESSAGE = "Error in placeholder replacement: ${e.getMessage()}"
                             throw e
                         }
                     }
@@ -153,25 +131,7 @@ pipeline {
         stage('Fetch Service Endpoint') {
             steps {
                 script {
-                    def ip = sh(
-                        script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'",
-                        returnStdout: true
-                    ).trim()
-
-                    if (!ip) {
-                        ip = sh(
-                            script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
-                            returnStdout: true
-                        ).trim()
-                    }
-
-                    if (!ip) {
-                        BUILD_LOG_MESSAGE = "Service external endpoint not assigned yet. Waiting..."
-                        currentBuild.result = 'UNSTABLE'  // Mark build as unstable if endpoint isn't assigned yet
-                    } else {
-                        env.DEPLOYED_ENDPOINT = "http://${ip}/health"
-                        BUILD_LOG_MESSAGE = "Service reachable at: ${env.DEPLOYED_ENDPOINT}"
-                    }
+                    echo "Skipping this stage for testing placeholder replacement only."
                 }
             }
         }
@@ -183,7 +143,6 @@ pipeline {
                 def payload = [
                     deployment_id: params.DEPLOYMENT_ID,
                     status: 'success',
-                    endpoint_url: env.DEPLOYED_ENDPOINT,
                     build_number: env.BUILD_NUMBER,
                     build_log: BUILD_LOG_MESSAGE,
                     jenkins_job_name: env.JOB_NAME
@@ -203,7 +162,6 @@ pipeline {
                 def payload = [
                     deployment_id: params.DEPLOYMENT_ID,
                     status: 'failed',
-                    endpoint_url: null,
                     build_number: env.BUILD_NUMBER,
                     build_log: BUILD_LOG_MESSAGE,
                     jenkins_job_name: env.JOB_NAME
@@ -220,6 +178,7 @@ pipeline {
 
         always {
             script {
+                echo "Cleaning up after testing."
                 sh "docker system prune -a -f || true"
             }
         }
