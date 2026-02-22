@@ -32,6 +32,7 @@ pipeline {
     DEPLOY_NAME = "deploy-${params.DEPLOYMENT_ID}"
     SVC_NAME = "svc-${params.DEPLOYMENT_ID}"
     APP_LABEL = "app-${params.DEPLOYMENT_ID}"
+    IMAGE = "${FINAL_IMAGE_URL}"
   }
 
   stages {
@@ -121,9 +122,6 @@ pipeline {
               rm -rf platform-manifests
               git clone --branch mlops_pipeline ${env.PIPELINE_REPO_URL} platform-manifests
 
-              # Create the deployment dynamically using kubectl
-              export IMAGE="${FINAL_IMAGE_URL}"
-
               sed -e "s/MODEL_DEPLOYMENT_NAME/${DEPLOY_NAME}/g" \
                   -e "s/MODEL_SERVICE_NAME/${SVC_NAME}/g" \
                   -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
@@ -134,8 +132,8 @@ pipeline {
                   -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
                   platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
 
-              kubectl apply -f /tmp/deployment.rendered.yaml
-              kubectl apply -f /tmp/service.rendered.yaml
+              kubectl apply -f /tmp/deployment.rendered.yaml || exit 1
+              kubectl apply -f /tmp/service.rendered.yaml || exit 1
 
               # Wait rollout
               kubectl rollout status deploy/${DEPLOY_NAME} --timeout=900s
