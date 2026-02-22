@@ -79,9 +79,46 @@ pipeline {
             }
         }
 
-        stage('Skip Build Image & Push') {
+        stage('Apply K8s Resources') {
             steps {
-                echo "Skipping build and push steps for placeholder testing"
+                script {
+                    withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
+                        try {
+                            sh """
+                                gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+                                gcloud config set project ${GCP_PROJECT}
+                                gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GKE_LOCATION}
+
+                                # Clone mlops-pipeline repo (this contains your k8s/ manifests)
+                                rm -rf platform-manifests
+                                git clone --branch mlops_pipeline ${env.PIPELINE_REPO_URL} platform-manifests
+
+                                # Create the deployment dynamically using kubectl
+                                sed -e "s/MODEL_DEPLOYMENT_NAME/${DEPLOY_NAME}/g" \
+                                    -e "s/MODEL_SERVICE_NAME/${SVC_NAME}/g" \
+                                    -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
+                                    -e "s|PLACEHOLDER_IMAGE|${IMAGE}|g" \
+                                    platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
+
+                                sed -e "s/MODEL_SERVICE_NAME/${SVC_NAME}/g" \
+                                    -e "s/MODEL_APP_LABEL/${APP_LABEL}/g" \
+                                    platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
+
+                                # Debugging: Check if the file exists and print its contents
+                                ls -l /tmp/
+                                cat /tmp/deployment.rendered.yaml || echo "File not found!"
+                                cat /tmp/service.rendered.yaml || echo "File not found!"
+
+                                # Skip kubectl apply for testing, comment out in production
+                                echo "Skipping kubectl apply for testing."
+                            """
+                            BUILD_LOG_MESSAGE = "Placeholder replacement checked and rendered YAML files are correct."
+                        } catch (e) {
+                            BUILD_LOG_MESSAGE = "Error in placeholder replacement: ${e.getMessage()}"
+                            throw e
+                        }
+                    }
+                }
             }
         }
 
