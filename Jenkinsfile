@@ -88,6 +88,12 @@ pipeline {
                 script {
                     withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
                         try {
+                            // Debugging: Print out the variables being passed
+                            echo "DEPLOY_NAME: ${DEPLOY_NAME}"
+                            echo "SVC_NAME: ${SVC_NAME}"
+                            echo "APP_LABEL: ${APP_LABEL}"
+                            echo "IMAGE: ${IMAGE}"
+
                             sh """
                                 gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
                                 gcloud config set project ${GCP_PROJECT}
