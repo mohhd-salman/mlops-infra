@@ -96,8 +96,7 @@ pipeline {
 
                     // Running sed command on the deployment.yaml file
                     sh """
-                        sed -e "s|MODEL_DEPLOYMENT_NAME|deploy-dl8ofyyg86|g" \
-                            -e "s|MODEL_SERVICE_NAME|demo|g" \
+                        sed -e "s|MODEL_SERVICE_NAME|demo|g" \
                             -e "s|MODEL_APP_LABEL|demo|g" \
                             -e "s|PLACEHOLDER_IMAGE|demo|g" \
                             platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
