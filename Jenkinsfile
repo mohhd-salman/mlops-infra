@@ -1,5 +1,3 @@
-def BUILD_LOG_MESSAGE = 'Pipeline initialized.'
-
 pipeline {
     agent any
 
