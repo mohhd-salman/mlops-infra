@@ -99,10 +99,10 @@ pipeline {
 
                     // Running sed command on the deployment.yaml file
                     sh """
-                        sed -e "s|\${MODEL_DEPLOYMENT_NAME}|${DEPLOY_NAME}|g" \
-                            -e "s|\${MODEL_SERVICE_NAME}|${SVC_NAME}|g" \
-                            -e "s|\${MODEL_APP_LABEL}|${APP_LABEL}|g" \
-                            -e "s|\${PLACEHOLDER_IMAGE}|${IMAGE}|g" \
+                        sed -e "s|\\\${MODEL_DEPLOYMENT_NAME}|${DEPLOY_NAME}|g" \
+                            -e "s|\\\${MODEL_SERVICE_NAME}|${SVC_NAME}|g" \
+                            -e "s|\\\${MODEL_APP_LABEL}|${APP_LABEL}|g" \
+                            -e "s|\\\${PLACEHOLDER_IMAGE}|${IMAGE}|g" \
                             platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
                         cat /tmp/deployment.rendered.yaml
                     """
