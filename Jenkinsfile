@@ -94,6 +94,9 @@ pipeline {
                     echo "APP_LABEL: ${APP_LABEL}"
                     echo "IMAGE: ${IMAGE}"
 
+                    // Clean any previous rendered files from /tmp/
+                    sh "rm -f /tmp/deployment.rendered.yaml"
+
                     // Running sed command on the deployment.yaml file
                     sh """
                         sed -e "s|MODEL_SERVICE_NAME|demo|g" \
