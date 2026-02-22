@@ -1,3 +1,5 @@
+def BUILD_LOG_MESSAGE = 'Pipeline initialized.'
+
 pipeline {
     agent any
 
@@ -77,35 +79,73 @@ pipeline {
             }
         }
 
-        stage('Skip Build Image & Push') {
+        stage('Build Image') {
             steps {
-                echo "Skipping build and push steps for placeholder testing"
+                dir("${REPO_NAME}") {
+                    script {
+                        sh "docker build -t ${DOCKER_IMAGE_LOCAL} ."
+                        BUILD_LOG_MESSAGE = "Docker image built."
+                    }
+                }
             }
         }
 
-        stage('Test Placeholder Replacement') {
+        stage('Push to Artifact Registry') {
             steps {
                 script {
-                    echo "Testing placeholder replacement for deployment.yaml"
+                    withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
+                        sh """
+                            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+                            gcloud config set project ${GCP_PROJECT}
 
-                    // Displaying variables
-                    echo "DEPLOY_NAME: ${DEPLOY_NAME}"
-                    echo "SVC_NAME: ${SVC_NAME}"
-                    echo "APP_LABEL: ${APP_LABEL}"
-                    echo "IMAGE: ${IMAGE}"
+                            gcloud auth configure-docker ${GAR_HOST} -q
 
-                    // Clean any previous rendered files from /tmp/
-                    sh "rm -f /tmp/deployment.rendered.yaml"
+                            docker tag ${DOCKER_IMAGE_LOCAL} ${FINAL_IMAGE_URL}
+                            docker push ${FINAL_IMAGE_URL}
+                        """
+                        BUILD_LOG_MESSAGE = "Pushed image: ${FINAL_IMAGE_URL}"
+                    }
+                }
+            }
+        }
 
-                    // Running sed command on the deployment.yaml file
-                    sh """
-                        sed -e "s|\\\${MODEL_DEPLOYMENT_NAME}|${DEPLOY_NAME}|g" \
-                            -e "s|\\\${MODEL_SERVICE_NAME}|${SVC_NAME}|g" \
-                            -e "s|\\\${MODEL_APP_LABEL}|${APP_LABEL}|g" \
-                            -e "s|\\\${PLACEHOLDER_IMAGE}|${IMAGE}|g" \
-                            platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
-                        cat /tmp/deployment.rendered.yaml
-                    """
+        stage('Apply K8s Resources') {
+            steps {
+                script {
+                    withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
+                        try {
+                            sh """
+                                gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+                                gcloud config set project ${GCP_PROJECT}
+                                gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GKE_LOCATION}
+
+                                # Clone mlops-pipeline repo (this contains your k8s/ manifests)
+                                rm -rf platform-manifests
+                                git clone --branch mlops_pipeline ${env.PIPELINE_REPO_URL} platform-manifests
+
+                                # Create the deployment dynamically using kubectl
+                                sed -e "s|\\\${MODEL_DEPLOYMENT_NAME}|${DEPLOY_NAME}|g" \
+                                    -e "s|\\\${MODEL_SERVICE_NAME}|${SVC_NAME}|g" \
+                                    -e "s|\\\${MODEL_APP_LABEL}|${APP_LABEL}|g" \
+                                    -e "s|\\\${PLACEHOLDER_IMAGE}|${IMAGE}|g" \
+                                    platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
+
+                                sed -e "s|\\\${MODEL_SERVICE_NAME}|${SVC_NAME}|g" \
+                                    -e "s|\\\${MODEL_APP_LABEL}|${APP_LABEL}|g" \
+                                    platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
+
+                                kubectl apply -f /tmp/deployment.rendered.yaml
+                                kubectl apply -f /tmp/service.rendered.yaml
+
+                                # Wait rollout
+                                kubectl rollout status deploy/${DEPLOY_NAME} --timeout=900s
+                            """
+                            BUILD_LOG_MESSAGE = "Applied Kubernetes resources (deployment and service)."
+                        } catch (e) {
+                            BUILD_LOG_MESSAGE = "Kubernetes deployment failed: ${e.getMessage()}"
+                            throw e
+                        }
+                    }
                 }
             }
         }
@@ -113,7 +153,25 @@ pipeline {
         stage('Fetch Service Endpoint') {
             steps {
                 script {
-                    echo "Skipping this stage for testing placeholder replacement only."
+                    def ip = sh(
+                        script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!ip) {
+                        ip = sh(
+                            script: "kubectl get svc ${SVC_NAME} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+                            returnStdout: true
+                        ).trim()
+                    }
+
+                    if (!ip) {
+                        BUILD_LOG_MESSAGE = "Service external endpoint not assigned yet. Waiting..."
+                        currentBuild.result = 'UNSTABLE'  // Mark build as unstable if endpoint isn't assigned yet
+                    } else {
+                        env.DEPLOYED_ENDPOINT = "http://${ip}/health"
+                        BUILD_LOG_MESSAGE = "Service reachable at: ${env.DEPLOYED_ENDPOINT}"
+                    }
                 }
             }
         }
@@ -125,6 +183,7 @@ pipeline {
                 def payload = [
                     deployment_id: params.DEPLOYMENT_ID,
                     status: 'success',
+                    endpoint_url: env.DEPLOYED_ENDPOINT,
                     build_number: env.BUILD_NUMBER,
                     build_log: BUILD_LOG_MESSAGE,
                     jenkins_job_name: env.JOB_NAME
@@ -144,6 +203,7 @@ pipeline {
                 def payload = [
                     deployment_id: params.DEPLOYMENT_ID,
                     status: 'failed',
+                    endpoint_url: null,
                     build_number: env.BUILD_NUMBER,
                     build_log: BUILD_LOG_MESSAGE,
                     jenkins_job_name: env.JOB_NAME
@@ -160,7 +220,6 @@ pipeline {
 
         always {
             script {
-                echo "Cleaning up after testing."
                 sh "docker system prune -a -f || true"
             }
         }
