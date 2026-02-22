@@ -83,51 +83,26 @@ pipeline {
             }
         }
 
-        stage('Apply K8s Resources') {
+        stage('Test Placeholder Replacement') {
             steps {
                 script {
-                    withCredentials([file(credentialsId: 'gcp-service-account-key', variable: 'GCP_KEY_FILE')]) {
-                        try {
-                            // Debugging: Print out the variables being passed
-                            echo "DEPLOY_NAME: ${DEPLOY_NAME}"
-                            echo "SVC_NAME: ${SVC_NAME}"
-                            echo "APP_LABEL: ${APP_LABEL}"
-                            echo "IMAGE: ${IMAGE}"
+                    echo "Testing placeholder replacement for deployment.yaml"
 
-                            sh """
-                                gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                                gcloud config set project ${GCP_PROJECT}
-                                gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GKE_LOCATION}
+                    // Displaying variables
+                    echo "DEPLOY_NAME: ${DEPLOY_NAME}"
+                    echo "SVC_NAME: ${SVC_NAME}"
+                    echo "APP_LABEL: ${APP_LABEL}"
+                    echo "IMAGE: ${IMAGE}"
 
-                                # Clone mlops-pipeline repo (this contains your k8s/ manifests)
-                                rm -rf platform-manifests
-                                git clone --branch mlops_pipeline ${env.PIPELINE_REPO_URL} platform-manifests
-
-                                # Create the deployment dynamically using kubectl with correct variable substitution
-                                sed -e "s|MODEL_DEPLOYMENT_NAME|${DEPLOY_NAME}|g" \
-                                    -e "s|MODEL_SERVICE_NAME|${SVC_NAME}|g" \
-                                    -e "s|MODEL_APP_LABEL|${APP_LABEL}|g" \
-                                    -e "s|PLACEHOLDER_IMAGE|${IMAGE}|g" \
-                                    platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
-
-                                sed -e "s|MODEL_SERVICE_NAME|${SVC_NAME}|g" \
-                                    -e "s|MODEL_APP_LABEL|${APP_LABEL}|g" \
-                                    platform-manifests/k8s/service.yaml > /tmp/service.rendered.yaml
-
-                                # Debugging: Check if the file exists and print its contents
-                                ls -l /tmp/
-                                cat /tmp/deployment.rendered.yaml || echo "File not found!"
-                                cat /tmp/service.rendered.yaml || echo "File not found!"
-
-                                # Skip kubectl apply for testing, comment out in production
-                                echo "Skipping kubectl apply for testing."
-                            """
-                            BUILD_LOG_MESSAGE = "Placeholder replacement checked and rendered YAML files are correct."
-                        } catch (e) {
-                            BUILD_LOG_MESSAGE = "Error in placeholder replacement: ${e.getMessage()}"
-                            throw e
-                        }
-                    }
+                    // Running sed command on the deployment.yaml file
+                    sh """
+                        sed -e 's|MODEL_DEPLOYMENT_NAME|${DEPLOY_NAME}|g' \
+                            -e 's|MODEL_SERVICE_NAME|${SVC_NAME}|g' \
+                            -e 's|MODEL_APP_LABEL|${APP_LABEL}|g' \
+                            -e 's|PLACEHOLDER_IMAGE|${IMAGE}|g' \
+                            platform-manifests/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
+                        cat /tmp/deployment.rendered.yaml
+                    """
                 }
             }
         }
